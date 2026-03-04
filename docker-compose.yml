@@ -1,0 +1,78 @@
+# ============================================================
+# Basketball Player Tracking — Docker Compose Configuration
+# ============================================================
+# Usage:
+#   docker-compose run tracker --source /app/data/video.mp4
+#   docker-compose run trainer
+#   docker-compose run evaluator --gt-dir /app/data/SportsMOT/dataset/val --pred-dir /app/outputs/predictions
+# ============================================================
+
+services:
+  # ---- Inference / Tracking ----
+  tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./runs:/app/runs
+    environment:
+      - WANDB_API_KEY=${WANDB_API_KEY:-}
+      - WANDB_MODE=${WANDB_MODE:-offline}
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    entrypoint: ["python", "scripts/run_inference.py"]
+    command: ["--help"]
+
+  # ---- Training ----
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./runs:/app/runs
+      - ./configs:/app/configs
+    environment:
+      - WANDB_API_KEY=${WANDB_API_KEY:-}
+      - WANDB_MODE=${WANDB_MODE:-online}
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    entrypoint: ["python", "scripts/train.py"]
+    command: ["--config", "/app/configs/dataset.yaml", "--epochs", "100"]
+
+  # ---- Data Preparation ----
+  data-prep:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/app/data
+      - ./configs:/app/configs
+    entrypoint: ["python", "scripts/prepare_data.py"]
+    command: ["--dataset-root", "/app/data/SportsMOT", "--output-dir", "/app/data/basketball_yolo"]
+
+  # ---- Evaluation ----
+  evaluator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+    entrypoint: ["python", "scripts/evaluate.py"]
+    command: ["--help"]

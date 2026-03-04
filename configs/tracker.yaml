@@ -1,0 +1,32 @@
+# ByteTrack Configuration for Basketball Player Tracking
+# Tuned for SportsMOT basketball sequences (25 FPS, 1280x720)
+
+tracker:
+  # --- Association thresholds ---
+  track_thresh: 0.5       # High-confidence threshold for 1st association stage
+  match_thresh: 0.8       # Maximum IoU distance for matching
+  min_conf: 0.1           # Minimum detection confidence (discard below)
+
+  # --- Track lifecycle ---
+  track_buffer: 75        # Frames to keep lost tracks (3s at 25 FPS)
+  frame_rate: 25          # Video frame rate (SportsMOT = 25 FPS)
+  min_hits: 3             # Consecutive hits required to confirm a track
+
+  # --- Kalman Filter tuning (basketball-specific) ---
+  # Default boxmot values: position=1/20, velocity=1/160
+  # Increased to accommodate rapid basketball player dynamics:
+  #   - Players accelerate/decelerate quickly (cuts, screens, sprints)
+  #   - Lateral movement speed: ~3-8 m/s
+  #   - High jerk (sudden direction changes)
+  kalman:
+    std_weight_position: 0.0667   # 1/15 (default: 1/20 = 0.05)
+    std_weight_velocity: 0.01     # 1/100 (default: 1/160 = 0.00625)
+
+# --- Inference settings ---
+inference:
+  model_weights: runs/detect/train/weights/best.pt
+  conf_thresh: 0.25       # Detection confidence threshold at inference
+  iou_thresh: 0.45        # NMS IoU threshold
+  imgsz: 640              # Input image size
+  device: "0"             # GPU device (0 = first GPU, "cpu" for CPU)
+  half: true              # FP16 inference for speed

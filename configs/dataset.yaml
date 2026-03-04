@@ -1,0 +1,12 @@
+# YOLO Dataset Configuration for Basketball Player Detection
+# SportsMOT Basketball Subset
+
+# Paths (relative to project root, updated by prepare_data.py)
+path: ../data/basketball_yolo
+train: images/train
+val: images/val
+
+# Classes
+nc: 1
+names:
+  0: player
