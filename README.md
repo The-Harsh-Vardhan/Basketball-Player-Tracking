@@ -1,65 +1,41 @@
-# Basketball Player Tracking — YOLO11 + ByteTrack
+# Basketball Player Tracking - YOLO11 + ByteTrack
 
-A modular, Dockerized end-to-end **Multi-Object Tracking (MOT)** pipeline for tracking basketball players in broadcast video. Combines **YOLO11m** detection with **ByteTrack** (basketball-tuned Kalman Filter) to maintain persistent player IDs through occlusions, screens, and camera motion.
+A modular, Dockerized **multi-object tracking (MOT)** pipeline for basketball broadcast video: a YOLO11m detector feeds a ByteTrack tracker with a basketball-tuned Kalman filter, so players keep persistent IDs through screens and occlusions. Built as an engineering assessment (see [Task.md](Task.md)) on the SportsMOT dataset.
 
-## Architecture Overview
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![YOLO11](https://img.shields.io/badge/YOLO11-Ultralytics-00FFFF.svg)](https://github.com/ultralytics/ultralytics)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg)](Dockerfile)
 
+Docs site: [the-harsh-vardhan.github.io/Basketball-Player-Tracking](https://the-harsh-vardhan.github.io/Basketball-Player-Tracking/)
+
+## What it does
+
+- **Data pipeline**: isolates the basketball subset of SportsMOT and converts MOT `gt.txt` into normalized YOLO annotations.
+- **Detection**: trains YOLO11m (logged to Weights & Biases) with the model choice justified by an mAP vs speed trade-off.
+- **Tracking**: wraps boxmot's ByteTrack and patches in a Kalman filter tuned for fast basketball motion (position noise 1/15, velocity noise 1/100).
+- **Inference**: detect, track, then write `tracker_output.txt` (MOT format) and an annotated `output.mp4`.
+- **Evaluation**: MOTA, IDF1 and MOTP via py-motmetrics.
+- **Reproducible**: one `docker-compose` service per stage (data-prep, trainer, tracker, evaluator).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    DS[("SportsMOT<br/>basketball subset")] -->|gt.txt to YOLO labels| PREP[prepare_data.py]
+    PREP --> TRAIN["train.py<br/>YOLO11m"]
+    TRAIN -.->|metrics| WB[Weights & Biases]
+    TRAIN -->|best.pt| DET[YOLO11m detector<br/>conf 0.25, imgsz 640, FP16]
+    VID[Video / frame folder] --> DET
+    DET -->|boxes + scores| BT["ByteTrack (boxmot)<br/>two-stage association"]
+    KF[Basketball Kalman filter] -.->|tuned noise| BT
+    BT -->|tracks + IDs| OUT[tracker_output.txt + output.mp4]
+    OUT --> EVAL["evaluate.py<br/>MOTA / IDF1 / MOTP"]
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Inference Pipeline (>30 FPS on T4)            │
-│                                                                  │
-│  ┌──────────┐    ┌────────────┐    ┌───────────┐    ┌────────┐  │
-│  │  Video /  │───▶│  YOLO11m   │───▶│ ByteTrack │───▶│  MOT   │  │
-│  │  Frames   │    │ Detection  │    │ Tracking  │    │ Output │  │
-│  └──────────┘    └────────────┘    └───────────┘    └────────┘  │
-│                    conf: 0.25         │                           │
-│                    imgsz: 640         │                           │
-│                    FP16: ✓            ▼                           │
-│                                ┌─────────────┐                   │
-│                                │ Basketball  │                   │
-│                                │ Kalman      │                   │
-│                                │ Filter      │                   │
-│                                │ (tuned)     │                   │
-│                                └─────────────┘                   │
-└─────────────────────────────────────────────────────────────────┘
 
-Output:
-  ├── tracker_output.txt  (MOT format)
-  ├── output.mp4          (annotated video)
-  └── MOTA / IDF1 metrics
-```
+## Status
 
-## Project Structure
-
-```
-├── configs/
-│   ├── dataset.yaml              # YOLO dataset config
-│   └── tracker.yaml              # ByteTrack hyperparameters
-├── src/
-│   ├── data/
-│   │   ├── download.py           # Dataset validation & instructions
-│   │   ├── filter_basketball.py  # SportsMOT basketball subset isolation
-│   │   └── parse_mot.py          # gt.txt → YOLO annotation converter
-│   ├── detection/
-│   │   └── train.py              # YOLO11 training with W&B
-│   ├── tracking/
-│   │   ├── bytetrack.py          # ByteTrack wrapper
-│   │   └── kalman_filter.py      # Basketball-tuned KalmanFilterXYAH
-│   ├── evaluation/
-│   │   └── metrics.py            # MOTA, IDF1, MOTP computation
-│   └── inference/
-│       ├── pipeline.py           # End-to-end detect → track → output
-│       └── visualize.py          # Video rendering with annotations
-├── scripts/
-│   ├── prepare_data.py           # Data preparation orchestrator
-│   ├── train.py                  # Training entry point
-│   ├── evaluate.py               # Evaluation entry point
-│   └── run_inference.py          # Inference entry point
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── tests/
-```
+- Implemented: data preparation, training entry point, tracking wrapper, inference pipeline, evaluation script, Docker setup, and unit tests for the Kalman filter and MOT parser (`tests/`).
+- **Not yet recorded in this repo**: a training run, MOTA/IDF1 results, FPS measurement and a public W&B dashboard. The figures in the "Detection model" table below are published Ultralytics benchmark numbers, not measurements from this project; the >30 FPS figure is the assignment target. See [#3](https://github.com/The-Harsh-Vardhan/Basketball-Player-Tracking/issues/3).
 
 ## Quick Start
 
@@ -138,6 +114,8 @@ data/SportsMOT/
 
 ### 1. Detection Model: YOLO11m
 
+Published Ultralytics COCO benchmark figures (not measured in this project):
+
 | Model | mAP@50:95 | Inference (T4) | FPS (T4) | Decision |
 |-------|-----------|---------------|----------|----------|
 | YOLO11n | 39.5 | 1.5ms | 667 | Too low mAP |
@@ -146,7 +124,7 @@ data/SportsMOT/
 | YOLO11l | 53.4 | 6.2ms | 161 | Diminishing returns |
 | YOLO11x | 54.7 | 11.3ms | 88 | Overkill for single-class |
 
-**Rationale**: YOLO11m offers the best mAP-to-speed tradeoff. At 213 FPS detection + ~1ms ByteTrack overhead, the pipeline operates well above the 30 FPS requirement. The 51.5 mAP provides robust detection under occlusion and varied lighting.
+**Rationale**: YOLO11m offers the best mAP-to-speed tradeoff. At the published 213 FPS detection + ~1ms ByteTrack overhead, the pipeline operates well above the 30 FPS requirement. The 51.5 mAP provides robust detection under occlusion and varied lighting.
 
 ### 2. Tracking Engine: ByteTrack (via boxmot)
 
@@ -203,16 +181,10 @@ min_hits: 3         # Require 3 consecutive detections to confirm a track
 
 **Documented assumption**: This is a fundamental limitation of motion-only tracking (ByteTrack). Without appearance-based re-identification (ReID), there is no mechanism to match players across large spatial gaps. For production use, we recommend BoTSORT with a lightweight ReID model (e.g., OSNet) — boxmot supports this with a one-line configuration change.
 
-## W&B Dashboard
 
-> **Link**: `[TODO: Add public W&B dashboard link after training]`
->
-> The W&B dashboard includes:
-> - Training loss curves (box loss, cls loss, dfl loss)
-> - Validation mAP@50 and mAP@50:95 over epochs
-> - Hyperparameter comparison (if sweep was run)
-> - Model artifact versioning
-> - Sample detection visualizations
+## Weights & Biases
+
+Training is logged to W&B (loss curves, mAP@50 and mAP@50:95 per epoch, model artifacts). No public dashboard link has been published yet.
 
 To enable W&B:
 ```bash
@@ -220,24 +192,12 @@ export WANDB_API_KEY=your_key_here
 # Or copy .env.example to .env and fill in your key
 ```
 
-## Evaluation Results
+## Evaluation
 
-> **[TODO: Fill after training and evaluation]**
+Targets from the assignment: MOTA above 70%, IDF1 above 65%, more than 30 FPS on a T4. Results will be reported here once a run is evaluated.
 
-| Metric | Value | Target |
-|--------|-------|--------|
-| MOTA | TBD | > 70% |
-| IDF1 | TBD | > 65% |
-| MOTP | TBD | — |
-| ID Switches | TBD | Low |
-| FPS (T4) | TBD | > 30 |
-
-Run evaluation:
 ```bash
-python scripts/evaluate.py \
-    --gt-dir data/SportsMOT/dataset/val \
-    --pred-dir outputs/predictions \
-    --output-json outputs/eval_results.json
+python scripts/evaluate.py \n    --gt-dir data/SportsMOT/dataset/val \n    --pred-dir outputs/predictions \n    --output-json outputs/eval_results.json
 ```
 
 ## Environment Reproduction
@@ -254,6 +214,42 @@ docker-compose run tracker --source /app/data/video.mp4
 ```bash
 pip install -r requirements.txt
 # Requires: CUDA 12.1+, Python 3.11+
+```
+
+## Tech stack
+
+Python 3.11+, Ultralytics YOLO11, boxmot (ByteTrack), py-motmetrics, Weights & Biases, OpenCV, NumPy, SciPy, Docker / docker-compose.
+
+## Project structure
+
+```
+├── configs/
+│   ├── dataset.yaml              # YOLO dataset config
+│   └── tracker.yaml              # ByteTrack hyperparameters
+├── src/
+│   ├── data/
+│   │   ├── download.py           # Dataset validation & instructions
+│   │   ├── filter_basketball.py  # SportsMOT basketball subset isolation
+│   │   └── parse_mot.py          # gt.txt → YOLO annotation converter
+│   ├── detection/
+│   │   └── train.py              # YOLO11 training with W&B
+│   ├── tracking/
+│   │   ├── bytetrack.py          # ByteTrack wrapper
+│   │   └── kalman_filter.py      # Basketball-tuned KalmanFilterXYAH
+│   ├── evaluation/
+│   │   └── metrics.py            # MOTA, IDF1, MOTP computation
+│   └── inference/
+│       ├── pipeline.py           # End-to-end detect → track → output
+│       └── visualize.py          # Video rendering with annotations
+├── scripts/
+│   ├── prepare_data.py           # Data preparation orchestrator
+│   ├── train.py                  # Training entry point
+│   ├── evaluate.py               # Evaluation entry point
+│   └── run_inference.py          # Inference entry point
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── tests/
 ```
 
 ## License

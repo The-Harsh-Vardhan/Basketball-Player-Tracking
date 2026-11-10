@@ -1,0 +1,3 @@
+theme: jekyll-theme-cayman
+title: Basketball Player Tracking
+description: YOLO11 + ByteTrack with a basketball-tuned Kalman filter on SportsMOT.
